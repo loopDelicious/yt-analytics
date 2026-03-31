@@ -1,4 +1,5 @@
 import io
+import logging
 import os
 import glob
 import re
@@ -11,6 +12,9 @@ from openpyxl import load_workbook
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", os.urandom(32).hex())
@@ -38,17 +42,55 @@ def find_latest_snapshot():
 
 
 def download_remote_snapshot():
-    """Download xlsx from DATA_URL. Returns (BytesIO, filename) or (None, None)."""
+    """Download xlsx from DATA_URL. Handles Google Drive confirmation pages."""
     if not DATA_URL:
+        log.warning("No DATA_URL configured and no local xlsx found.")
         return None, None
     try:
-        resp = requests.get(DATA_URL, timeout=30)
+        log.info("Downloading remote snapshot from DATA_URL...")
+        sess = requests.Session()
+        resp = sess.get(DATA_URL, timeout=30)
         resp.raise_for_status()
+
+        # Google Drive may serve a virus-scan confirmation page for larger files.
+        # Detect it and follow through with the confirm token.
+        content_type = resp.headers.get("Content-Type", "")
+        if "text/html" in content_type:
+            log.info("Got HTML response, looking for Google Drive confirm token...")
+            confirm_match = re.search(r'confirm=([0-9A-Za-z_-]+)', resp.text)
+            uuid_match = re.search(r'uuid=([0-9A-Za-z_-]+)', resp.text)
+            if confirm_match:
+                params = {"confirm": confirm_match.group(1)}
+                if uuid_match:
+                    params["uuid"] = uuid_match.group(1)
+                resp = sess.get(DATA_URL, params=params, timeout=30)
+                resp.raise_for_status()
+            else:
+                # Try the id= param approach as fallback
+                id_match = re.search(r'id=([0-9A-Za-z_-]+)', DATA_URL)
+                if id_match:
+                    download_url = f"https://drive.google.com/uc?export=download&confirm=t&id={id_match.group(1)}"
+                    resp = sess.get(download_url, timeout=30)
+                    resp.raise_for_status()
+
+        content_type = resp.headers.get("Content-Type", "")
+        if "text/html" in content_type:
+            log.error("DATA_URL returned HTML instead of a file. Check your sharing settings.")
+            log.error("Response preview: %s", resp.text[:500])
+            return None, None
+
         disposition = resp.headers.get("Content-Disposition", "")
-        match = re.search(r'filename="?([^";\n]+)', disposition)
+        match = re.search(r'filename\*?="?([^";\n]+)', disposition)
         filename = match.group(1).strip() if match else "Remote snapshot.xlsx"
+        # Clean up URL-encoded filenames
+        if filename.startswith("UTF-8''"):
+            from urllib.parse import unquote
+            filename = unquote(filename[7:])
+
+        log.info("Downloaded %d bytes, filename: %s", len(resp.content), filename)
         return io.BytesIO(resp.content), filename
-    except Exception:
+    except Exception as e:
+        log.error("Failed to download from DATA_URL: %s", e)
         return None, None
 
 
@@ -127,11 +169,11 @@ def load_video_data():
 
 def compute_averages(videos):
     """Compute per-video averages across all lifetime videos for color-coding."""
-    if not videos:
-        return {}
-    n = len(videos)
     keys = ["likes", "comments", "avg_pct_viewed", "like_ratio",
             "views", "subscribers", "impressions", "ctr", "subs_views_ratio"]
+    if not videos:
+        return {k: 0 for k in keys}
+    n = len(videos)
     return {k: round(sum(v[k] for v in videos) / n, 2) for k in keys}
 
 
@@ -234,7 +276,14 @@ def dashboard():
     }
     days = days_map.get(timespan)
 
+    empty_totals = {
+        "likes": 0, "comments": 0, "avg_pct_viewed": 0, "like_ratio": 0,
+        "views": 0, "subscribers": 0, "impressions": 0, "ctr": 0,
+    }
+
     videos, snapshot_date, totals = load_video_data()
+    if totals is None:
+        totals = empty_totals
     averages = compute_averages(videos)
     filtered = filter_by_timespan(videos, days)
     filtered = filter_by_format(filtered, fmt)
