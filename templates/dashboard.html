@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YT Analytics Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            yt: { red: '#FF0000', dark: '#282828' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="min-h-screen bg-gray-950 text-gray-100">
+
+  {# Macro for color-coded metric cells.
+     Compares a video's value against the lifetime average.
+     Green = above avg, amber/red = below avg. #}
+  {% macro metric_cell(value, avg, fmt="num", prefix="", suffix="", primary=false) %}
+    {% if value >= avg %}
+      {% set color = "text-emerald-400" %}
+    {% else %}
+      {% set color = "text-amber-400" %}
+    {% endif %}
+    <td class="px-4 py-3 text-right whitespace-nowrap align-top pt-4 {{ 'font-semibold' if primary }} {{ color }}" data-sort-value="{{ value }}">
+      {{ prefix }}{% if fmt == "num" %}{{ value | fmt_num }}{% else %}{{ value }}{% endif %}{{ suffix }}
+    </td>
+  {% endmacro %}
+
+  <!-- Header -->
+  <header class="sticky top-0 z-50 bg-gray-950/80 backdrop-blur-xl border-b border-gray-800/60">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="inline-flex items-center justify-center w-9 h-9 rounded-xl bg-red-600">
+          <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold text-white leading-tight">YT Analytics</h1>
+          <p class="text-xs text-gray-500">Snapshot: {{ snapshot_date }}</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-4">
+        <span class="text-sm text-gray-400"><span class="font-semibold text-white">{{ totals.subscribers | fmt_num }}</span> subscribers</span>
+        <a href="{{ url_for('logout') }}" class="text-sm text-gray-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-gray-800">
+          Sign Out
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+
+    <!-- Controls Row 1: Metric Tabs + Format Toggle + Time Filter -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+
+      <!-- Metric Tabs -->
+      <div class="flex bg-gray-900/60 border border-gray-800/60 rounded-xl p-1 gap-1">
+        {% set tabs = [("subscribers", "Subscribers"), ("likability", "Likability"), ("engagement", "Engagement")] %}
+        {% for key, label in tabs %}
+          <a
+            href="{{ url_for('dashboard', tab=key, timespan=timespan, fmt=fmt, sort='default') }}"
+            class="px-4 py-2 rounded-lg text-sm font-medium transition-all
+              {% if tab == key %}
+                bg-red-600 text-white shadow-lg shadow-red-600/20
+              {% else %}
+                text-gray-400 hover:text-white hover:bg-gray-800/60
+              {% endif %}"
+          >
+            {{ label }}
+          </a>
+        {% endfor %}
+      </div>
+
+      <div class="flex items-center gap-3">
+        <!-- Format Toggle -->
+        <div class="flex bg-gray-900/60 border border-gray-800/60 rounded-xl p-1 gap-1">
+          {% set formats = [("all", "All"), ("shorts", "Shorts"), ("long", "Long")] %}
+          {% for key, label in formats %}
+            <a
+              href="{{ url_for('dashboard', tab=tab, timespan=timespan, sort=sort, fmt=key) }}"
+              class="px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all
+                {% if fmt == key %}
+                  bg-gray-700 text-white
+                {% else %}
+                  text-gray-400 hover:text-white hover:bg-gray-800/60
+                {% endif %}"
+            >
+              {{ label }}
+            </a>
+          {% endfor %}
+        </div>
+
+        <!-- Time Filter -->
+        <div class="flex bg-gray-900/60 border border-gray-800/60 rounded-xl p-1 gap-1 hide-scrollbar overflow-x-auto">
+          {% set timespans = [("lifetime", "Lifetime"), ("365", "365 days"), ("90", "90 days"), ("28", "28 days"), ("7", "7 days")] %}
+          {% for key, label in timespans %}
+            <a
+              href="{{ url_for('dashboard', tab=tab, timespan=key, sort=sort, fmt=fmt) }}"
+              class="px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all
+                {% if timespan == key %}
+                  bg-gray-700 text-white
+                {% else %}
+                  text-gray-400 hover:text-white hover:bg-gray-800/60
+                {% endif %}"
+            >
+              {{ label }}
+            </a>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Sub-tabs (Subscribers) -->
+    {% if tab == "subscribers" %}
+    <div class="flex items-center gap-2">
+      <span class="text-xs text-gray-600 uppercase tracking-wide mr-1">Sort by</span>
+      <div class="flex bg-gray-900/60 border border-gray-800/60 rounded-lg p-0.5 gap-0.5">
+        <a href="{{ url_for('dashboard', tab=tab, timespan=timespan, fmt=fmt, sort='default') }}"
+           class="px-3 py-1.5 rounded-md text-xs font-medium transition-all
+             {% if sort == 'default' %}bg-gray-700 text-white{% else %}text-gray-400 hover:text-white hover:bg-gray-800/60{% endif %}">
+          Total Subs
+        </a>
+        <a href="{{ url_for('dashboard', tab=tab, timespan=timespan, fmt=fmt, sort='ratio') }}"
+           class="px-3 py-1.5 rounded-md text-xs font-medium transition-all
+             {% if sort == 'ratio' %}bg-gray-700 text-white{% else %}text-gray-400 hover:text-white hover:bg-gray-800/60{% endif %}">
+          Subs / Views
+        </a>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Legend + Video Count -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+      <p class="text-sm text-gray-500">{{ video_count }} video{{ "s" if video_count != 1 }} · sorted by
+        {% if tab == "subscribers" and sort == "ratio" %}subs-to-views ratio
+        {% elif tab == "subscribers" %}subscribers gained
+        {% elif tab == "likability" %}like ratio, then by total likes
+        {% else %}avg. % viewed
+        {% endif %}
+      </p>
+      <div class="flex items-center gap-4 text-xs">
+        <span class="flex items-center gap-1.5">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+          <span class="text-gray-500">Above lifetime avg</span>
+        </span>
+        <span class="flex items-center gap-1.5">
+          <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+          <span class="text-gray-500">Below lifetime avg</span>
+        </span>
+      </div>
+    </div>
+
+    {% set th_base = "px-4 py-3 text-xs font-semibold uppercase tracking-wider" %}
+    {% set th_sort = "cursor-pointer select-none hover:text-gray-300 transition-colors" %}
+
+    <!-- Table -->
+    <div class="bg-gray-900/40 border border-gray-800/60 rounded-2xl overflow-hidden">
+      <div class="overflow-x-auto">
+        <table id="video-table" class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-gray-800/60 text-left">
+              <th class="{{ th_base }} text-gray-500 w-8">#</th>
+              <th class="{{ th_base }} {{ th_sort }} text-gray-500 min-w-[340px]" data-sort-type="string" data-col="1">
+                <span class="inline-flex items-center gap-1">Video <span class="sort-arrow text-[10px] opacity-0">▼</span></span>
+              </th>
+              <th class="{{ th_base }} {{ th_sort }} text-gray-500" data-sort-type="number" data-col="2">
+                <span class="inline-flex items-center gap-1">Published <span class="sort-arrow text-[10px] opacity-0">▼</span></span>
+              </th>
+              <th class="{{ th_base }} {{ th_sort }} text-gray-500" data-sort-type="number" data-col="3">
+                <span class="inline-flex items-center gap-1">Duration <span class="sort-arrow text-[10px] opacity-0">▼</span></span>
+              </th>
+
+              {% if tab == "subscribers" and sort == "ratio" %}
+                <th class="{{ th_base }} {{ th_sort }} text-gray-500 text-right" data-sort-type="number" data-col="4">
+                  <span class="inline-flex items-center gap-1 justify-end">Subs/Views <span class="sort-arrow text-[10px] opacity-0">▼</span></span>
+                </th>
+                <th class="{{ th_base }} {{ th_sort }} text-gray-500 text-right" data-sort-type="number" data-col="5">
+                  <span class="inline-flex items-center gap-1 justify-end">Subs <span class="sort-arrow text-[10px] opacity-0">▼</span></span>
+                </th>
+                <th class="{{ th_base }} {{ th_sort }} text-gray-500 text-right" data-sort-type="number" data-col="6">
+                  <span class="inline-flex items-center gap-1 justify-end">Views <span class="sort-arrow text-[10px] opacity-0">▼</span></span>
+                </th>
+                <th class="{{ th_base }} {{ th_sort }} text-gray-500 text-right" data-sort-type="number" data-col="7">
+                  <span class="inline-flex items-center gap-1 justify-end">CTR <span class="sort-arrow text-[10px] opacity-0">▼</span></span>
+                </th>
+              {% elif tab == "subscribers" %}
+                <th class="{{ th_base }} {{ th_sort }} text-gray-500 text-right" data-sort-type="number" data-col="4">
+                  <span class="inline-flex items-center gap-1 justify-end">Subs <span class="sort-arrow text-[10px] opacity-0">▼</span></span>
+                </th>
+                <th class="{{ th_base }} {{ th_sort }} text-gray-500 text-right" data-sort-type="number" data-col="5">
+                  <span class="inline-flex items-center gap-1 justify-end">Views <span class="sort-arrow text-[10px] opacity-0">▼</span></span>
+                </th>
+                <th class="{{ th_base }} {{ th_sort }} text-gray-500 text-right" data-sort-type="number" data-col="6">
+                  <span class="inline-flex items-center gap-1 justify-end">Impressions <span class="sort-arrow text-[10px] opacity-0">▼</span></span>
+                </th>
+                <th class="{{ th_base }} {{ th_sort }} text-gray-500 text-right" data-sort-type="number" data-col="7">
+                  <span class="inline-flex items-center gap-1 justify-end">CTR <span class="sort-arrow text-[10px] opacity-0">▼</span></span>
+                </th>
+              {% elif tab == "likability" %}
+                <th class="{{ th_base }} {{ th_sort }} text-gray-500 text-right" data-sort-type="number" data-col="4">
+                  <span class="inline-flex items-center gap-1 justify-end">Like % <span class="sort-arrow text-[10px] opacity-0">▼</span></span>
+                </th>
+                <th class="{{ th_base }} {{ th_sort }} text-gray-500 text-right" data-sort-type="number" data-col="5">
+                  <span class="inline-flex items-center gap-1 justify-end">Likes <span class="sort-arrow text-[10px] opacity-0">▼</span></span>
+                </th>
+                <th class="{{ th_base }} {{ th_sort }} text-gray-500 text-right" data-sort-type="number" data-col="6">
+                  <span class="inline-flex items-center gap-1 justify-end">Comments <span class="sort-arrow text-[10px] opacity-0">▼</span></span>
+                </th>
+                <th class="{{ th_base }} {{ th_sort }} text-gray-500 text-right" data-sort-type="number" data-col="7">
+                  <span class="inline-flex items-center gap-1 justify-end">Views <span class="sort-arrow text-[10px] opacity-0">▼</span></span>
+                </th>
+              {% else %}
+                <th class="{{ th_base }} {{ th_sort }} text-gray-500 text-right" data-sort-type="number" data-col="4">
+                  <span class="inline-flex items-center gap-1 justify-end">Avg. Viewed <span class="sort-arrow text-[10px] opacity-0">▼</span></span>
+                </th>
+                <th class="{{ th_base }} {{ th_sort }} text-gray-500 text-right" data-sort-type="number" data-col="5">
+                  <span class="inline-flex items-center gap-1 justify-end">Views <span class="sort-arrow text-[10px] opacity-0">▼</span></span>
+                </th>
+                <th class="{{ th_base }} {{ th_sort }} text-gray-500 text-right" data-sort-type="number" data-col="6">
+                  <span class="inline-flex items-center gap-1 justify-end">Likes <span class="sort-arrow text-[10px] opacity-0">▼</span></span>
+                </th>
+                <th class="{{ th_base }} {{ th_sort }} text-gray-500 text-right" data-sort-type="number" data-col="7">
+                  <span class="inline-flex items-center gap-1 justify-end">Comments <span class="sort-arrow text-[10px] opacity-0">▼</span></span>
+                </th>
+              {% endif %}
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-800/40">
+            {% for v in videos %}
+            <tr class="hover:bg-gray-800/30 transition-colors group">
+              <td class="px-4 py-3 text-gray-600 font-mono text-xs align-top pt-4 row-num">{{ loop.index }}</td>
+              <td class="px-4 py-3" data-sort-value="{{ v.title | lower }}">
+                <a href="https://youtube.com/watch?v={{ v.id }}" target="_blank" rel="noopener"
+                   class="flex items-center gap-3 group/link">
+                  <img
+                    src="https://img.youtube.com/vi/{{ v.id }}/mqdefault.jpg"
+                    alt=""
+                    class="w-28 h-16 object-cover rounded-lg flex-shrink-0 border border-gray-700/50 group-hover/link:border-red-500/50 transition-colors"
+                    loading="lazy"
+                  >
+                  <span class="text-white group-hover/link:text-red-400 transition-colors font-medium line-clamp-2 leading-snug">
+                    {{ v.title }}
+                  </span>
+                </a>
+              </td>
+              <td class="px-4 py-3 text-gray-400 whitespace-nowrap align-top pt-4" data-sort-value="{{ v.publish_date.strftime('%Y%m%d') if v.publish_date else '0' }}">{{ v.publish_time }}</td>
+              <td class="px-4 py-3 text-gray-400 whitespace-nowrap font-mono text-xs align-top pt-4" data-sort-value="{{ v.duration_sec }}">{{ v.duration_sec | fmt_dur }}</td>
+
+              {% if tab == "subscribers" and sort == "ratio" %}
+                {{ metric_cell(v.subs_views_ratio, averages.subs_views_ratio, "raw", "", "%", true) }}
+                {{ metric_cell(v.subscribers, averages.subscribers, "num", "+") }}
+                {{ metric_cell(v.views, averages.views) }}
+                {{ metric_cell(v.ctr, averages.ctr, "raw", "", "%") }}
+              {% elif tab == "subscribers" %}
+                {{ metric_cell(v.subscribers, averages.subscribers, "num", "+", "", true) }}
+                {{ metric_cell(v.views, averages.views) }}
+                {{ metric_cell(v.impressions, averages.impressions) }}
+                {{ metric_cell(v.ctr, averages.ctr, "raw", "", "%") }}
+              {% elif tab == "likability" %}
+                {{ metric_cell(v.like_ratio, averages.like_ratio, "raw", "", "%", true) }}
+                {{ metric_cell(v.likes, averages.likes) }}
+                {{ metric_cell(v.comments, averages.comments) }}
+                {{ metric_cell(v.views, averages.views) }}
+              {% else %}
+                {{ metric_cell(v.avg_pct_viewed, averages.avg_pct_viewed, "raw", "", "%", true) }}
+                {{ metric_cell(v.views, averages.views) }}
+                {{ metric_cell(v.likes, averages.likes) }}
+                {{ metric_cell(v.comments, averages.comments) }}
+              {% endif %}
+            </tr>
+            {% endfor %}
+
+            {% if not videos %}
+            <tr>
+              <td colspan="8" class="px-4 py-12 text-center text-gray-500">
+                No videos found for this time period.
+              </td>
+            </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <footer class="max-w-7xl mx-auto px-4 sm:px-6 py-8 text-center text-xs text-gray-600">
+    Internal use only &middot; Data from YouTube Studio
+  </footer>
+
+  <script>
+  (function() {
+    const table = document.getElementById('video-table');
+    if (!table) return;
+
+    const thead = table.querySelector('thead');
+    const tbody = table.querySelector('tbody');
+    const headers = thead.querySelectorAll('th[data-col]');
+    let activeCol = null;
+    let ascending = false;
+
+    headers.forEach(th => {
+      th.addEventListener('click', () => {
+        const col = parseInt(th.dataset.col);
+        const type = th.dataset.sortType;
+
+        if (activeCol === col) {
+          ascending = !ascending;
+        } else {
+          activeCol = col;
+          ascending = (type === 'string');
+        }
+
+        // Update arrow indicators
+        headers.forEach(h => {
+          const arrow = h.querySelector('.sort-arrow');
+          if (!arrow) return;
+          if (parseInt(h.dataset.col) === col) {
+            arrow.style.opacity = '1';
+            arrow.textContent = ascending ? '▲' : '▼';
+          } else {
+            arrow.style.opacity = '0';
+          }
+        });
+
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        rows.sort((a, b) => {
+          const cellA = a.children[col];
+          const cellB = b.children[col];
+          if (!cellA || !cellB) return 0;
+
+          let valA = cellA.dataset.sortValue;
+          let valB = cellB.dataset.sortValue;
+
+          if (type === 'number') {
+            valA = parseFloat(valA) || 0;
+            valB = parseFloat(valB) || 0;
+            return ascending ? valA - valB : valB - valA;
+          }
+          valA = (valA || '').toString();
+          valB = (valB || '').toString();
+          return ascending ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        });
+
+        rows.forEach((row, i) => {
+          tbody.appendChild(row);
+          const numCell = row.querySelector('.row-num');
+          if (numCell) numCell.textContent = i + 1;
+        });
+      });
+    });
+  })();
+  </script>
+
+</body>
+</html>

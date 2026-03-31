@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign In - YT Analytics</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+  </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 flex items-center justify-center px-4">
+  <div class="w-full max-w-sm">
+    <div class="text-center mb-8">
+      <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-red-600 mb-4">
+        <svg class="w-7 h-7 text-white" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+        </svg>
+      </div>
+      <h1 class="text-2xl font-bold text-white">YT Analytics</h1>
+      <p class="text-gray-400 mt-1 text-sm">Internal dashboard</p>
+    </div>
+
+    <form method="POST" class="bg-gray-800/50 backdrop-blur border border-gray-700/50 rounded-2xl p-6 shadow-2xl">
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          <div class="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+            {{ messages[0] }}
+          </div>
+        {% endif %}
+      {% endwith %}
+
+      <label for="password" class="block text-sm font-medium text-gray-300 mb-2">Password</label>
+      <input
+        type="password"
+        id="password"
+        name="password"
+        required
+        autofocus
+        placeholder="Enter password"
+        class="w-full px-4 py-3 rounded-xl bg-gray-900/80 border border-gray-600/50 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500/50 focus:border-red-500/50 transition"
+      >
+      <button
+        type="submit"
+        class="w-full mt-4 px-4 py-3 rounded-xl bg-red-600 hover:bg-red-500 text-white font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-red-500/50"
+      >
+        Sign In
+      </button>
+    </form>
+  </div>
+</body>
+</html>
