@@ -1,9 +1,11 @@
+import io
 import os
 import glob
 import re
 from datetime import datetime, timedelta
 from functools import wraps
 
+import requests
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from openpyxl import load_workbook
 from dotenv import load_dotenv
@@ -14,6 +16,7 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", os.urandom(32).hex())
 
 SITE_PASSWORD = os.getenv("SITE_PASSWORD", "changeme")
+DATA_URL = os.getenv("DATA_URL", "")
 
 
 def login_required(f):
@@ -34,6 +37,21 @@ def find_latest_snapshot():
     return max(files, key=os.path.getmtime)
 
 
+def download_remote_snapshot():
+    """Download xlsx from DATA_URL. Returns (BytesIO, filename) or (None, None)."""
+    if not DATA_URL:
+        return None, None
+    try:
+        resp = requests.get(DATA_URL, timeout=30)
+        resp.raise_for_status()
+        disposition = resp.headers.get("Content-Disposition", "")
+        match = re.search(r'filename="?([^";\n]+)', disposition)
+        filename = match.group(1).strip() if match else "Remote snapshot.xlsx"
+        return io.BytesIO(resp.content), filename
+    except Exception:
+        return None, None
+
+
 def parse_publish_date(date_str):
     """Parse 'Mon DD, YYYY' format into a datetime object."""
     if not date_str:
@@ -45,16 +63,20 @@ def parse_publish_date(date_str):
 
 
 def load_video_data():
-    """Load video data from the latest snapshot xlsx."""
+    """Load video data from a local xlsx or a remote DATA_URL."""
     filepath = find_latest_snapshot()
-    if not filepath:
-        return [], "", None
 
-    filename = os.path.basename(filepath)
-    match = re.search(r"Lifetime snapshot (.+)\.xlsx", filename)
-    snapshot_date_str = match.group(1) if match else filename
+    if filepath:
+        filename = os.path.basename(filepath)
+        wb = load_workbook(filepath)
+    else:
+        remote_data, filename = download_remote_snapshot()
+        if remote_data is None:
+            return [], "", None
+        wb = load_workbook(remote_data)
 
-    wb = load_workbook(filepath)
+    match = re.search(r"Lifetime snapshot (.+)\.xlsx", filename or "")
+    snapshot_date_str = match.group(1) if match else (filename or "Unknown")
     ws = wb["Table data"]
 
     headers = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
