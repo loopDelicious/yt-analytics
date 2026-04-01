@@ -109,16 +109,24 @@ def load_video_data():
     filepath = find_latest_snapshot()
 
     if filepath:
+        log.info("Loading local file: %s", filepath)
         filename = os.path.basename(filepath)
         wb = load_workbook(filepath)
     else:
+        log.info("No local xlsx found, trying DATA_URL...")
         remote_data, filename = download_remote_snapshot()
         if remote_data is None:
+            log.error("No data available. Set DATA_URL or place an xlsx in the project root.")
             return [], "", None
-        wb = load_workbook(remote_data)
+        try:
+            wb = load_workbook(remote_data)
+        except Exception as e:
+            log.error("Failed to parse downloaded xlsx: %s", e)
+            return [], "", None
 
     match = re.search(r"Lifetime snapshot (.+)\.xlsx", filename or "")
     snapshot_date_str = match.group(1) if match else (filename or "Unknown")
+    log.info("Snapshot date: %s", snapshot_date_str)
     ws = wb["Table data"]
 
     headers = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
@@ -164,6 +172,7 @@ def load_video_data():
     }
 
     wb.close()
+    log.info("Loaded %d videos, total subs: %s", len(videos), totals.get("subscribers"))
     return videos, snapshot_date_str, totals
 
 
