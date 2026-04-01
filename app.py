@@ -3,6 +3,8 @@ import logging
 import os
 import glob
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from functools import wraps
 
@@ -21,6 +23,9 @@ app.secret_key = os.getenv("SECRET_KEY", os.urandom(32).hex())
 
 SITE_PASSWORD = os.getenv("SITE_PASSWORD", "changeme")
 DATA_URL = os.getenv("DATA_URL", "")
+CACHE_TTL = int(os.getenv("CACHE_TTL", "600"))
+
+_cache = {"data": None, "expires": 0}
 
 
 def login_required(f):
@@ -94,6 +99,32 @@ def download_remote_snapshot():
         return None, None
 
 
+def check_is_short(video_id):
+    """Check if a video is a YouTube Short by probing the /shorts/ URL."""
+    try:
+        resp = requests.head(
+            f"https://www.youtube.com/shorts/{video_id}",
+            timeout=5,
+            allow_redirects=False,
+        )
+        return video_id, resp.status_code == 200
+    except Exception:
+        return video_id, False
+
+
+def detect_shorts(video_ids):
+    """Batch-check which videos are Shorts using concurrent HEAD requests."""
+    results = {}
+    with ThreadPoolExecutor(max_workers=20) as pool:
+        futures = {pool.submit(check_is_short, vid): vid for vid in video_ids}
+        for future in as_completed(futures):
+            vid, is_short = future.result()
+            results[vid] = is_short
+    short_count = sum(1 for v in results.values() if v)
+    log.info("Shorts detection: %d/%d are Shorts", short_count, len(results))
+    return results
+
+
 def parse_publish_date(date_str):
     """Parse 'Mon DD, YYYY' format into a datetime object."""
     if not date_str:
@@ -131,13 +162,19 @@ def load_video_data():
 
     headers = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
 
-    SHORTS_MAX_DURATION = 60
-
-    videos = []
+    raw_rows = []
     for row in ws.iter_rows(min_row=3, values_only=True):
         video_id = row[0]
         if not video_id or video_id == "Total":
             continue
+        raw_rows.append(row)
+
+    video_ids = [row[0] for row in raw_rows]
+    shorts_map = detect_shorts(video_ids)
+
+    videos = []
+    for row in raw_rows:
+        video_id = row[0]
         duration = row[3] or 0
         views = row[8] or 0
         subscribers = row[9] or 0
@@ -147,7 +184,7 @@ def load_video_data():
             "publish_time": row[2] or "",
             "publish_date": parse_publish_date(row[2]),
             "duration_sec": duration,
-            "is_short": duration <= SHORTS_MAX_DURATION,
+            "is_short": shorts_map.get(video_id, False),
             "likes": row[4] or 0,
             "comments": row[5] or 0,
             "avg_pct_viewed": row[6] or 0,
@@ -173,7 +210,19 @@ def load_video_data():
 
     wb.close()
     log.info("Loaded %d videos, total subs: %s", len(videos), totals.get("subscribers"))
+
+    _cache["data"] = (videos, snapshot_date_str, totals)
+    _cache["expires"] = time.time() + CACHE_TTL
+    log.info("Cached data for %d seconds", CACHE_TTL)
+
     return videos, snapshot_date_str, totals
+
+
+def get_video_data():
+    """Return cached data if fresh, otherwise reload."""
+    if _cache["data"] and time.time() < _cache["expires"]:
+        return _cache["data"]
+    return load_video_data()
 
 
 def compute_averages(videos):
@@ -290,7 +339,7 @@ def dashboard():
         "views": 0, "subscribers": 0, "impressions": 0, "ctr": 0,
     }
 
-    videos, snapshot_date, totals = load_video_data()
+    videos, snapshot_date, totals = get_video_data()
     if totals is None:
         totals = empty_totals
     averages = compute_averages(videos)
