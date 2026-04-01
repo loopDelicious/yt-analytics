@@ -115,7 +115,7 @@ def check_is_short(video_id):
 def detect_shorts(video_ids):
     """Batch-check which videos are Shorts using concurrent HEAD requests."""
     results = {}
-    with ThreadPoolExecutor(max_workers=20) as pool:
+    with ThreadPoolExecutor(max_workers=10) as pool:
         futures = {pool.submit(check_is_short, vid): vid for vid in video_ids}
         for future in as_completed(futures):
             vid, is_short = future.result()
