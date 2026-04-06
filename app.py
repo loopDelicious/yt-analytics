@@ -146,10 +146,11 @@ def load_video_data():
                 shorts_map = detect_shorts([v["id"] for v in videos])
                 for v in videos:
                     v["is_short"] = shorts_map.get(v["id"], False)
-                _cache["data"] = (videos, snapshot_date_str, totals)
+                result = (videos, snapshot_date_str, totals, "Live via YouTube API")
+                _cache["data"] = result
                 _cache["expires"] = time.time() + CACHE_TTL
                 log.info("Cached API data for %d seconds", CACHE_TTL)
-                return videos, snapshot_date_str, totals
+                return result
             log.warning("YouTube API returned no videos, falling back to xlsx...")
     except ImportError:
         log.info("youtube_api module not available, skipping API source.")
@@ -167,12 +168,12 @@ def load_video_data():
         remote_data, filename = download_remote_snapshot()
         if remote_data is None:
             log.error("No data available. Set DATA_URL, configure YouTube API, or place an xlsx in the project root.")
-            return [], "", None
+            return [], "", None, "No data source"
         try:
             wb = load_workbook(remote_data)
         except Exception as e:
             log.error("Failed to parse downloaded xlsx: %s", e)
-            return [], "", None
+            return [], "", None, "No data source"
 
     match = re.search(r"Lifetime snapshot (.+)\.xlsx", filename or "")
     snapshot_date_str = match.group(1) if match else (filename or "Unknown")
@@ -230,11 +231,13 @@ def load_video_data():
     wb.close()
     log.info("Loaded %d videos, total subs: %s", len(videos), totals.get("subscribers"))
 
-    _cache["data"] = (videos, snapshot_date_str, totals)
+    data_source = "Snapshot" if filepath else "Remote spreadsheet"
+    result = (videos, snapshot_date_str, totals, data_source)
+    _cache["data"] = result
     _cache["expires"] = time.time() + CACHE_TTL
     log.info("Cached data for %d seconds", CACHE_TTL)
 
-    return videos, snapshot_date_str, totals
+    return result
 
 
 def get_video_data():
@@ -358,7 +361,7 @@ def dashboard():
         "views": 0, "subscribers": 0, "impressions": 0, "ctr": 0,
     }
 
-    videos, snapshot_date, totals = get_video_data()
+    videos, snapshot_date, totals, data_source = get_video_data()
     if totals is None:
         totals = empty_totals
     averages = compute_averages(videos)
@@ -390,6 +393,7 @@ def dashboard():
         fmt=fmt,
         timespan=timespan,
         snapshot_date=snapshot_date,
+        data_source=data_source,
         totals=display_totals,
         averages=averages,
         video_count=len(sorted_videos),
