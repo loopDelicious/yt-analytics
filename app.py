@@ -136,7 +136,26 @@ def parse_publish_date(date_str):
 
 
 def load_video_data():
-    """Load video data from a local xlsx or a remote DATA_URL."""
+    """Load video data from YouTube API, local xlsx, or remote DATA_URL (in priority order)."""
+    try:
+        import youtube_api
+        if youtube_api.is_available():
+            log.info("YouTube API credentials found – fetching from API...")
+            videos, snapshot_date_str, totals = youtube_api.fetch_channel_data()
+            if videos:
+                shorts_map = detect_shorts([v["id"] for v in videos])
+                for v in videos:
+                    v["is_short"] = shorts_map.get(v["id"], False)
+                _cache["data"] = (videos, snapshot_date_str, totals)
+                _cache["expires"] = time.time() + CACHE_TTL
+                log.info("Cached API data for %d seconds", CACHE_TTL)
+                return videos, snapshot_date_str, totals
+            log.warning("YouTube API returned no videos, falling back to xlsx...")
+    except ImportError:
+        log.info("youtube_api module not available, skipping API source.")
+    except Exception as e:
+        log.error("YouTube API error: %s, falling back to xlsx...", e)
+
     filepath = find_latest_snapshot()
 
     if filepath:
@@ -147,7 +166,7 @@ def load_video_data():
         log.info("No local xlsx found, trying DATA_URL...")
         remote_data, filename = download_remote_snapshot()
         if remote_data is None:
-            log.error("No data available. Set DATA_URL or place an xlsx in the project root.")
+            log.error("No data available. Set DATA_URL, configure YouTube API, or place an xlsx in the project root.")
             return [], "", None
         try:
             wb = load_workbook(remote_data)
