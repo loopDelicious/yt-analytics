@@ -143,29 +143,28 @@ def _get_analytics(analytics, channel_id, video_ids, start_date="2020-01-01"):
                 ids=f"channel=={channel_id}",
                 startDate=start_date,
                 endDate=end_date,
-                metrics="subscribersGained,averageViewPercentage,likes,dislikes,impressions,impressionClickThroughRate",
+                metrics="subscribersGained,averageViewPercentage,likes,impressions,impressionClickThroughRate",
                 dimensions="video",
                 filters=filters,
                 maxResults=200,
             ).execute()
         except Exception as e:
-            log.warning("Analytics API error for batch: %s", e)
+            log.error("Analytics API error for batch %d: %s", i // 200 + 1, e)
             continue
 
-        for row in resp.get("rows", []):
+        rows = resp.get("rows", [])
+        log.info("Analytics batch %d: got %d rows", i // 200 + 1, len(rows))
+        for row in rows:
             vid = row[0]
             subs_gained = row[1]
             avg_view_pct = row[2]
             likes = row[3]
-            dislikes = row[4]
-            impressions = row[5]
-            ctr = row[6]
-            total_votes = likes + dislikes
-            like_ratio = round(likes / total_votes * 100, 2) if total_votes > 0 else 0
+            impressions = row[4]
+            ctr = row[5]
             results[vid] = {
                 "subscribers": subs_gained,
                 "avg_pct_viewed": round(avg_view_pct, 2),
-                "like_ratio": like_ratio,
+                "like_ratio": 0,
                 "impressions": impressions,
                 "ctr": round(ctr, 2),
             }
@@ -237,7 +236,9 @@ def fetch_channel_data():
             publish_date = None
 
         views = detail["views"]
+        likes = detail["likes"]
         subscribers = analytic.get("subscribers", 0)
+        like_ratio = round(likes / views * 100, 2) if views else 0
 
         videos.append({
             "id": vid,
@@ -246,10 +247,10 @@ def fetch_channel_data():
             "publish_date": publish_date,
             "duration_sec": detail["duration_sec"],
             "is_short": False,
-            "likes": detail["likes"],
+            "likes": likes,
             "comments": detail["comments"],
             "avg_pct_viewed": analytic.get("avg_pct_viewed", 0),
-            "like_ratio": analytic.get("like_ratio", 0),
+            "like_ratio": like_ratio,
             "views": views,
             "subscribers": subscribers,
             "subs_views_ratio": round(subscribers / views * 100, 2) if views else 0,
