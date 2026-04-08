@@ -64,11 +64,15 @@ def _parse_duration(iso_duration):
 
 def _get_channel_id(youtube):
     """Get the authenticated user's channel ID."""
-    resp = youtube.channels().list(part="id", mine=True).execute()
+    resp = youtube.channels().list(part="id,snippet", mine=True).execute()
     items = resp.get("items", [])
     if not items:
+        log.warning("channels.list(mine=True) returned no items. "
+                     "If this is a Brand Account, set YOUTUBE_CHANNEL_ID env var.")
         return None
-    return items[0]["id"]
+    channel = items[0]
+    log.info("Found channel: %s (%s)", channel["snippet"]["title"], channel["id"])
+    return channel["id"]
 
 
 def _get_uploads_playlist_id(youtube, channel_id):
@@ -187,19 +191,27 @@ def fetch_channel_data():
     youtube = build("youtube", "v3", credentials=creds)
     analytics = build("youtubeAnalytics", "v2", credentials=creds)
 
-    channel_id = os.getenv("YOUTUBE_CHANNEL_ID", "") or _get_channel_id(youtube)
-    if not channel_id:
-        log.error("Could not determine channel ID.")
-        return [], "", None
+    channel_id = os.getenv("YOUTUBE_CHANNEL_ID", "")
+    if channel_id:
+        log.info("Using YOUTUBE_CHANNEL_ID from env: %s", channel_id)
+    else:
+        channel_id = _get_channel_id(youtube)
+        if channel_id:
+            log.info("Auto-detected channel ID: %s", channel_id)
+        else:
+            log.error("Could not determine channel ID. Set YOUTUBE_CHANNEL_ID env var.")
+            return [], "", None
 
-    log.info("Fetching videos for channel %s...", channel_id)
     uploads_id = _get_uploads_playlist_id(youtube, channel_id)
     if not uploads_id:
-        log.error("Could not find uploads playlist.")
+        log.error("Could not find uploads playlist for channel %s.", channel_id)
         return [], "", None
+    log.info("Uploads playlist: %s", uploads_id)
 
     video_ids = _list_all_video_ids(youtube, uploads_id)
-    log.info("Found %d videos", len(video_ids))
+    log.info("Found %d video IDs in uploads playlist", len(video_ids))
+    if video_ids:
+        log.info("First 5 video IDs: %s", video_ids[:5])
 
     video_details = _get_video_details(youtube, video_ids)
     log.info("Fetched details for %d videos", len(video_details))
