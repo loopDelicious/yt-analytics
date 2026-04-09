@@ -143,7 +143,7 @@ def _get_analytics(analytics, channel_id, video_ids, start_date="2020-01-01"):
                 ids=f"channel=={channel_id}",
                 startDate=start_date,
                 endDate=end_date,
-                metrics="subscribersGained,averageViewPercentage,likes,impressions,impressionClickThroughRate",
+                metrics="subscribersGained,averageViewPercentage",
                 dimensions="video",
                 filters=filters,
                 maxResults=200,
@@ -158,15 +158,9 @@ def _get_analytics(analytics, channel_id, video_ids, start_date="2020-01-01"):
             vid = row[0]
             subs_gained = row[1]
             avg_view_pct = row[2]
-            likes = row[3]
-            impressions = row[4]
-            ctr = row[5]
             results[vid] = {
                 "subscribers": subs_gained,
                 "avg_pct_viewed": round(avg_view_pct, 2),
-                "like_ratio": 0,
-                "impressions": impressions,
-                "ctr": round(ctr, 2),
             }
 
     return results
@@ -254,8 +248,8 @@ def fetch_channel_data():
             "views": views,
             "subscribers": subscribers,
             "subs_views_ratio": round(subscribers / views * 100, 2) if views else 0,
-            "impressions": analytic.get("impressions", 0),
-            "ctr": analytic.get("ctr", 0),
+            "impressions": 0,
+            "ctr": 0,
         })
 
     totals = {
