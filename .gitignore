@@ -9,8 +9,6 @@ build/
 
 # Environment & secrets
 .env
-.youtube_token.json
-client_secret.json
 
 # Data files
 *.xlsx

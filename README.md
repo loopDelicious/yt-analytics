@@ -1,10 +1,9 @@
 # YT Analytics
 
-A password-protected internal dashboard for viewing YouTube Studio analytics. Fetches data directly from the **YouTube API** (or reads a "Lifetime snapshot" `.xlsx` export as a fallback) and presents top-performing videos across three lenses: **Subscribers**, **Likability**, and **Engagement**.
+A password-protected internal dashboard for viewing YouTube Studio analytics. Reads a "Lifetime snapshot" `.xlsx` export and presents top-performing videos across three lenses: **Subscribers**, **Likability**, and **Engagement**.
 
 ## Features
 
-- **YouTube API integration** — pulls video stats and analytics directly from your channel, no spreadsheet needed
 - **Password gate** — simple shared-password login to keep the dashboard internal
 - **Three metric tabs**
   - **Subscribers** — ranked by subscribers gained (with a sub-tab for subs-to-views conversion ratio)
@@ -15,7 +14,7 @@ A password-protected internal dashboard for viewing YouTube Studio analytics. Fe
 - **Color-coded metrics** — green for above the lifetime per-video average, amber for below
 - **Clickable column headers** — sort any column locally in ascending or descending order
 - **Video thumbnails** — pulled from YouTube for easy visual scanning
-- **Three data sources** (in priority order): YouTube API → local `.xlsx` → remote `DATA_URL`
+- **Remote data support** — set a `DATA_URL` env var to load data from Google Sheets or any hosted xlsx
 - **In-memory cache** — data is refreshed every 10 minutes (configurable), keeping page loads instant
 
 ## Prerequisites
@@ -52,33 +51,15 @@ A password-protected internal dashboard for viewing YouTube Studio analytics. Fe
    SECRET_KEY=any-random-string
    ```
 
-4. **Set up a data source** (pick one):
+4. **Add your data**
 
-   ### Option A: YouTube API (recommended)
+   Export a "Lifetime" snapshot from [YouTube Studio Analytics](https://studio.youtube.com/) (Content tab → Advanced mode → Export → Excel) and place the `.xlsx` file in the project root. The file must be named like:
 
-   This pulls data directly from your YouTube channel — no spreadsheets to manage.
-
-   **One-time Google Cloud setup:**
-
-   1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-   2. Create a new project (or select an existing one)
-   3. Enable **YouTube Data API v3** and **YouTube Analytics API** under APIs & Services → Library
-   4. Go to APIs & Services → Credentials → **Create Credentials → OAuth client ID**
-   5. If prompted, configure the OAuth consent screen (External is fine — add yourself as a test user)
-   6. Choose **Desktop app** as the application type
-   7. Download the JSON file and save it as `client_secret.json` in the project root
-
-   **Authorize:**
-
-   ```bash
-   python setup_youtube.py
+   ```
+   Lifetime snapshot <date>.xlsx
    ```
 
-   A browser window opens — sign in with the Google account that owns your YouTube channel. The script saves a `.youtube_token.json` file and prints a JSON string for use in deployment.
-
-   ### Option B: Spreadsheet (xlsx)
-
-   Export a "Lifetime" snapshot from [YouTube Studio Analytics](https://studio.youtube.com/) (Content tab → Advanced mode → Export → Excel) and place the `.xlsx` file in the project root. The file must be named like `Lifetime snapshot <date>.xlsx`. The app automatically picks the most recently modified file matching that pattern.
+   The app automatically picks the most recently modified file matching that pattern.
 
 5. **Run**
 
@@ -89,46 +70,80 @@ A password-protected internal dashboard for viewing YouTube Studio analytics. Fe
 
    Open [http://localhost:5000](http://localhost:5000) and enter your password.
 
-## Deploy to Render (free tier)
+## Deploy to Render
 
 1. **Push this repo to GitHub** (public or private both work).
 
-2. **Create a Render account** at [render.com](https://render.com) and sign in with GitHub.
+2. **Host your xlsx remotely:**
+   - Open [Google Sheets](https://sheets.google.com), create a new spreadsheet, and import your xlsx
+   - Or upload the xlsx to Google Drive and use Google Sheets to open it
+   - Get the export URL: `https://docs.google.com/spreadsheets/d/SHEET_ID/export?format=xlsx`
 
-3. **New → Web Service** → connect your GitHub repo.
+3. **Create a Render account** at [render.com](https://render.com) and sign in with GitHub.
 
-4. **Render auto-detects `render.yaml`** and fills in the settings. Verify:
+4. **New → Web Service** → connect your GitHub repo.
+
+5. **Render auto-detects `render.yaml`** and fills in the settings. Verify:
    - **Build command:** `pip install -r requirements.txt`
    - **Start command:** `gunicorn app:app --timeout 120`
-   - **Instance type:** Free
+   - **Instance type:** Free (or your plan)
 
-5. **Set environment variables** in the Render dashboard:
+6. **Set environment variables** in the Render dashboard:
 
    | Variable | Value |
    |----------|-------|
    | `SITE_PASSWORD` | Your chosen password |
-   | `YOUTUBE_TOKEN_JSON` | The JSON string printed by `setup_youtube.py` |
+   | `DATA_URL` | Your Google Sheets export URL |
    | `SECRET_KEY` | Auto-generated by `render.yaml` |
 
-   If using the spreadsheet fallback instead of the API, set `DATA_URL` to your Google Sheets export URL.
+7. **Deploy.** Render gives you a URL like `ytanalytics-xxxx.onrender.com`. Share it with your team.
 
-6. **Deploy.** Render gives you a URL like `ytanalytics-xxxx.onrender.com`. Share it with your team.
+### Updating data
 
-### Refreshing the YouTube API token on Render
+1. Update the Google Sheet with a new export from YouTube Studio
+2. The app caches data for 10 minutes (configurable via `CACHE_TTL`). After the cache expires, the next page load fetches fresh data.
+3. To force a refresh, redeploy or restart the service in Render.
 
-The OAuth token auto-refreshes as long as the refresh token is valid. If it ever expires (e.g., after 6 months of inactivity or if you revoke access), run `setup_youtube.py` locally again and update `YOUTUBE_TOKEN_JSON` in Render.
+## Exporting from YouTube Studio
 
-> **Note:** The free tier spins down after 15 minutes of inactivity. The first visit after idle takes ~30 seconds to cold-start. This is fine for an internal dashboard.
+Follow these steps to generate the report this dashboard expects.
 
-## Updating data
+1. Go to [YouTube Studio](https://studio.youtube.com/) → **Analytics** (left sidebar)
+2. Click **Advanced Mode** (top-right)
+3. Select the **Content** tab (top row, between "Overview" and "Traffic source")
+4. Set the date range to **Lifetime** (dropdown at the top)
+5. Click the **pencil icon** (or "Customize columns") to choose which metrics appear in the table. Select exactly these, in this order:
 
-**With YouTube API:** Data refreshes automatically. The app caches results for 10 minutes (configurable via `CACHE_TTL`). Just reload the page.
+   | # | Metric to select | Category in Studio |
+   |---|------------------|--------------------|
+   | 1 | Duration (seconds) | Content |
+   | 2 | Likes | Engagement |
+   | 3 | Comments added | Engagement |
+   | 4 | Average percentage viewed (%) | Engagement |
+   | 5 | Likes (vs. dislikes) (%) | Engagement |
+   | 6 | Views | Overview / Reach |
+   | 7 | Subscribers | Audience |
+   | 8 | Impressions | Reach |
+   | 9 | Impressions click-through rate (%) | Reach |
 
-**With spreadsheet:** Export a new Lifetime snapshot from YouTube Studio, drop the `.xlsx` in the project root, and reload.
+   > **Note:** "Content" (video ID), "Video title", and "Video publish time" are always included automatically as the first three columns. You only need to add the 9 metrics above.
+
+6. Click **Export** (download icon, top-right) → **Google Sheets** or **Excel (.xlsx)**
+7. If you exported to Google Sheets, download as `.xlsx` or use the Sheets export URL for `DATA_URL`
+8. The file will be named something like `Lifetime snapshot March 31 2026.xlsx`
+
+### Quick refresh checklist
+
+When you want to update the dashboard with fresh data:
+
+1. YouTube Studio → Analytics → Advanced Mode → Content tab → Lifetime
+2. Export → Google Sheets (overwrite the existing sheet) or Excel
+3. If using `DATA_URL` with Google Sheets, the dashboard auto-refreshes within 10 minutes
+4. If using a local file, drop the new `.xlsx` in the project root and reload
 
 ## Expected spreadsheet format
 
-The app reads the **Table data** sheet from the `.xlsx` file. It expects these columns in order:
+For reference, the exported `.xlsx` must have a sheet called **Table data** with these columns in order:
 
 | Column | Field |
 |--------|-------|
@@ -145,23 +160,21 @@ The app reads the **Table data** sheet from the `.xlsx` file. It expects these c
 | K | Impressions |
 | L | Impressions click-through rate (%) |
 
-Row 2 should contain the totals. Video data starts at row 3.
+Row 2 contains the totals. Video data starts at row 3. This format is exactly what YouTube Studio produces when you follow the export steps above.
 
 ## Project structure
 
 ```
 YTanalytics/
-├── .env.example          # Template for environment variables
+├── .env.example        # Template for environment variables
 ├── .gitignore
 ├── README.md
-├── app.py                # Flask application
-├── youtube_api.py        # YouTube API client (Data API + Analytics API)
-├── setup_youtube.py      # One-time OAuth setup script
-├── render.yaml           # Render deployment config
-├── requirements.txt      # Python dependencies
+├── app.py              # Flask application
+├── render.yaml         # Render deployment config
+├── requirements.txt    # Python dependencies
 └── templates/
-    ├── login.html        # Password gate
-    └── dashboard.html    # Main analytics view
+    ├── login.html      # Password gate
+    └── dashboard.html  # Main analytics view
 ```
 
 ## License

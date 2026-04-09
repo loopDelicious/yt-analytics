@@ -136,27 +136,7 @@ def parse_publish_date(date_str):
 
 
 def load_video_data():
-    """Load video data from YouTube API, local xlsx, or remote DATA_URL (in priority order)."""
-    try:
-        import youtube_api
-        if youtube_api.is_available():
-            log.info("YouTube API credentials found – fetching from API...")
-            videos, snapshot_date_str, totals = youtube_api.fetch_channel_data()
-            if videos:
-                shorts_map = detect_shorts([v["id"] for v in videos])
-                for v in videos:
-                    v["is_short"] = shorts_map.get(v["id"], False)
-                result = (videos, snapshot_date_str, totals, "Live via YouTube API")
-                _cache["data"] = result
-                _cache["expires"] = time.time() + CACHE_TTL
-                log.info("Cached API data for %d seconds", CACHE_TTL)
-                return result
-            log.warning("YouTube API returned no videos, falling back to xlsx...")
-    except ImportError:
-        log.info("youtube_api module not available, skipping API source.")
-    except Exception as e:
-        log.error("YouTube API error: %s, falling back to xlsx...", e)
-
+    """Load video data from a local xlsx or a remote DATA_URL."""
     filepath = find_latest_snapshot()
 
     if filepath:
@@ -167,13 +147,13 @@ def load_video_data():
         log.info("No local xlsx found, trying DATA_URL...")
         remote_data, filename = download_remote_snapshot()
         if remote_data is None:
-            log.error("No data available. Set DATA_URL, configure YouTube API, or place an xlsx in the project root.")
-            return [], "", None, "No data source"
+            log.error("No data available. Set DATA_URL or place an xlsx in the project root.")
+            return [], "", None
         try:
             wb = load_workbook(remote_data)
         except Exception as e:
             log.error("Failed to parse downloaded xlsx: %s", e)
-            return [], "", None, "No data source"
+            return [], "", None
 
     match = re.search(r"Lifetime snapshot (.+)\.xlsx", filename or "")
     snapshot_date_str = match.group(1) if match else (filename or "Unknown")
@@ -231,13 +211,11 @@ def load_video_data():
     wb.close()
     log.info("Loaded %d videos, total subs: %s", len(videos), totals.get("subscribers"))
 
-    data_source = "Snapshot" if filepath else "Remote spreadsheet"
-    result = (videos, snapshot_date_str, totals, data_source)
-    _cache["data"] = result
+    _cache["data"] = (videos, snapshot_date_str, totals)
     _cache["expires"] = time.time() + CACHE_TTL
     log.info("Cached data for %d seconds", CACHE_TTL)
 
-    return result
+    return videos, snapshot_date_str, totals
 
 
 def get_video_data():
@@ -361,7 +339,7 @@ def dashboard():
         "views": 0, "subscribers": 0, "impressions": 0, "ctr": 0,
     }
 
-    videos, snapshot_date, totals, data_source = get_video_data()
+    videos, snapshot_date, totals = get_video_data()
     if totals is None:
         totals = empty_totals
     averages = compute_averages(videos)
@@ -393,7 +371,6 @@ def dashboard():
         fmt=fmt,
         timespan=timespan,
         snapshot_date=snapshot_date,
-        data_source=data_source,
         totals=display_totals,
         averages=averages,
         video_count=len(sorted_videos),
