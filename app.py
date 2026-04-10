@@ -46,15 +46,26 @@ def find_latest_snapshot():
     return max(files, key=os.path.getmtime)
 
 
+def _normalize_data_url(url):
+    """Convert Google Sheets share/edit URLs to export URLs automatically."""
+    match = re.match(r'https://docs\.google\.com/spreadsheets/d/([a-zA-Z0-9_-]+)', url)
+    if match and "/export" not in url:
+        export_url = f"https://docs.google.com/spreadsheets/d/{match.group(1)}/export?format=xlsx"
+        log.info("Converted share URL to export URL: %s", export_url)
+        return export_url
+    return url
+
+
 def download_remote_snapshot():
     """Download xlsx from DATA_URL. Handles Google Drive confirmation pages."""
     if not DATA_URL:
         log.warning("No DATA_URL configured and no local xlsx found.")
         return None, None
     try:
-        log.info("Downloading remote snapshot from DATA_URL...")
+        url = _normalize_data_url(DATA_URL)
+        log.info("Downloading remote snapshot from %s", url)
         sess = requests.Session()
-        resp = sess.get(DATA_URL, timeout=30)
+        resp = sess.get(url, timeout=30)
         resp.raise_for_status()
 
         # Google Drive may serve a virus-scan confirmation page for larger files.
@@ -68,11 +79,10 @@ def download_remote_snapshot():
                 params = {"confirm": confirm_match.group(1)}
                 if uuid_match:
                     params["uuid"] = uuid_match.group(1)
-                resp = sess.get(DATA_URL, params=params, timeout=30)
+                resp = sess.get(url, params=params, timeout=30)
                 resp.raise_for_status()
             else:
-                # Try the id= param approach as fallback
-                id_match = re.search(r'id=([0-9A-Za-z_-]+)', DATA_URL)
+                id_match = re.search(r'id=([0-9A-Za-z_-]+)', url)
                 if id_match:
                     download_url = f"https://drive.google.com/uc?export=download&confirm=t&id={id_match.group(1)}"
                     resp = sess.get(download_url, timeout=30)
