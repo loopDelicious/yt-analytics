@@ -182,40 +182,48 @@ def load_video_data():
     video_ids = [row[0] for row in raw_rows]
     shorts_map = detect_shorts(video_ids)
 
+    def num(val):
+        """Coerce a cell value to a number, defaulting to 0."""
+        if val is None:
+            return 0
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return 0
+
     videos = []
     for row in raw_rows:
         video_id = row[0]
-        duration = row[3] or 0
-        views = row[8] or 0
-        subscribers = row[9] or 0
+        views = num(row[8])
+        subscribers = num(row[9])
         videos.append({
             "id": video_id,
             "title": row[1] or "",
             "publish_time": row[2] or "",
             "publish_date": parse_publish_date(row[2]),
-            "duration_sec": duration,
+            "duration_sec": num(row[3]),
             "is_short": shorts_map.get(video_id, False),
-            "likes": row[4] or 0,
-            "comments": row[5] or 0,
-            "avg_pct_viewed": row[6] or 0,
-            "like_ratio": row[7] or 0,
+            "likes": num(row[4]),
+            "comments": num(row[5]),
+            "avg_pct_viewed": num(row[6]),
+            "like_ratio": num(row[7]),
             "views": views,
             "subscribers": subscribers,
             "subs_views_ratio": round(subscribers / views * 100, 2) if views else 0,
-            "impressions": row[10] or 0,
-            "ctr": row[11] or 0,
+            "impressions": num(row[10]),
+            "ctr": num(row[11]),
         })
 
     totals_row = list(ws.iter_rows(min_row=2, max_row=2, values_only=True))[0]
     totals = {
-        "likes": totals_row[4] or 0,
-        "comments": totals_row[5] or 0,
-        "avg_pct_viewed": totals_row[6] or 0,
-        "like_ratio": totals_row[7] or 0,
-        "views": totals_row[8] or 0,
-        "subscribers": totals_row[9] or 0,
-        "impressions": totals_row[10] or 0,
-        "ctr": totals_row[11] or 0,
+        "likes": num(totals_row[4]),
+        "comments": num(totals_row[5]),
+        "avg_pct_viewed": num(totals_row[6]),
+        "like_ratio": num(totals_row[7]),
+        "views": num(totals_row[8]),
+        "subscribers": num(totals_row[9]),
+        "impressions": num(totals_row[10]),
+        "ctr": num(totals_row[11]),
     }
 
     wb.close()
