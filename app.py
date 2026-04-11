@@ -171,6 +171,33 @@ def load_video_data():
     ws = wb["Table data"]
 
     headers = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+    log.info("Spreadsheet headers: %s", headers)
+
+    HEADER_MAP = {
+        "duration (seconds)":                   "duration_sec",
+        "duration":                             "duration_sec",
+        "likes":                                "likes",
+        "comments added":                       "comments",
+        "comments":                             "comments",
+        "average percentage viewed (%)":        "avg_pct_viewed",
+        "average percentage viewed":            "avg_pct_viewed",
+        "likes (vs. dislikes) (%)":             "like_ratio",
+        "likes (vs. dislikes)":                 "like_ratio",
+        "views":                                "views",
+        "subscribers":                          "subscribers",
+        "impressions":                          "impressions",
+        "impressions click-through rate (%)":   "ctr",
+        "impressions click-through rate":       "ctr",
+    }
+
+    col_map = {}
+    for i, h in enumerate(headers):
+        if not h:
+            continue
+        key = HEADER_MAP.get(h.strip().lower())
+        if key:
+            col_map[key] = i
+    log.info("Column mapping: %s", col_map)
 
     raw_rows = []
     for row in ws.iter_rows(min_row=3, values_only=True):
@@ -191,39 +218,44 @@ def load_video_data():
         except (ValueError, TypeError):
             return 0
 
+    def col(row, field):
+        """Get a numeric value from a row by field name using the header mapping."""
+        idx = col_map.get(field)
+        return num(row[idx]) if idx is not None else 0
+
     videos = []
     for row in raw_rows:
         video_id = row[0]
-        views = num(row[8])
-        subscribers = num(row[9])
+        views = col(row, "views")
+        subscribers = col(row, "subscribers")
         videos.append({
             "id": video_id,
             "title": row[1] or "",
             "publish_time": row[2] or "",
             "publish_date": parse_publish_date(row[2]),
-            "duration_sec": num(row[3]),
+            "duration_sec": col(row, "duration_sec"),
             "is_short": shorts_map.get(video_id, False),
-            "likes": num(row[4]),
-            "comments": num(row[5]),
-            "avg_pct_viewed": num(row[6]),
-            "like_ratio": num(row[7]),
+            "likes": col(row, "likes"),
+            "comments": col(row, "comments"),
+            "avg_pct_viewed": col(row, "avg_pct_viewed"),
+            "like_ratio": col(row, "like_ratio"),
             "views": views,
             "subscribers": subscribers,
             "subs_views_ratio": round(subscribers / views * 100, 2) if views else 0,
-            "impressions": num(row[10]),
-            "ctr": num(row[11]),
+            "impressions": col(row, "impressions"),
+            "ctr": col(row, "ctr"),
         })
 
     totals_row = list(ws.iter_rows(min_row=2, max_row=2, values_only=True))[0]
     totals = {
-        "likes": num(totals_row[4]),
-        "comments": num(totals_row[5]),
-        "avg_pct_viewed": num(totals_row[6]),
-        "like_ratio": num(totals_row[7]),
-        "views": num(totals_row[8]),
-        "subscribers": num(totals_row[9]),
-        "impressions": num(totals_row[10]),
-        "ctr": num(totals_row[11]),
+        "likes": col(totals_row, "likes"),
+        "comments": col(totals_row, "comments"),
+        "avg_pct_viewed": col(totals_row, "avg_pct_viewed"),
+        "like_ratio": col(totals_row, "like_ratio"),
+        "views": col(totals_row, "views"),
+        "subscribers": col(totals_row, "subscribers"),
+        "impressions": col(totals_row, "impressions"),
+        "ctr": col(totals_row, "ctr"),
     }
 
     wb.close()
