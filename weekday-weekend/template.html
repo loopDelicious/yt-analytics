@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>When should we publish? — YouTube analysis</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .chart-wrap { position: relative; height: 260px; }
+  th.sortable { cursor: pointer; user-select: none; }
+  th.sortable:hover { background: #f3f4f6; }
+  th .arrow { opacity: 0.35; margin-left: 4px; }
+  th.sorted .arrow { opacity: 1; }
+  details > summary { cursor: pointer; user-select: none; }
+  details > summary::-webkit-details-marker { display: none; }
+  details > summary::before {
+    content: '▸'; display: inline-block; width: 1em;
+    transition: transform 0.15s;
+  }
+  details[open] > summary::before { transform: rotate(90deg); }
+</style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+
+<main class="max-w-5xl mx-auto px-6 py-8 space-y-6">
+
+  <!-- Header -->
+  <header class="flex items-baseline justify-between flex-wrap gap-2">
+    <div>
+      <h1 class="text-2xl font-semibold">When should we publish?</h1>
+      <p class="text-sm text-gray-500" id="subtitle"></p>
+    </div>
+    <div class="text-right text-xs text-gray-400">
+      <div id="source"></div>
+      <div id="generated"></div>
+    </div>
+  </header>
+
+  <!-- Recommendation hero -->
+  <section class="bg-gradient-to-br from-indigo-600 to-indigo-700 text-white rounded-xl p-6 shadow-sm">
+    <div class="text-xs uppercase tracking-wider text-indigo-200 mb-2">Recommendation</div>
+    <h2 class="text-2xl font-semibold mb-2" id="rec-headline"></h2>
+    <p class="text-sm text-indigo-100 leading-relaxed max-w-3xl" id="rec-detail"></p>
+
+    <div class="grid grid-cols-3 gap-3 mt-5">
+      <div class="bg-white/10 backdrop-blur rounded-lg p-3">
+        <div class="text-xs text-indigo-200">Best publish day</div>
+        <div class="text-xl font-semibold" id="stat-best"></div>
+        <div class="text-xs text-indigo-200 mt-0.5" id="stat-best-sub"></div>
+      </div>
+      <div class="bg-white/10 backdrop-blur rounded-lg p-3">
+        <div class="text-xs text-indigo-200">Audience watches</div>
+        <div class="text-xl font-semibold" id="stat-viewing"></div>
+        <div class="text-xs text-indigo-200 mt-0.5" id="stat-viewing-sub"></div>
+      </div>
+      <div class="bg-white/10 backdrop-blur rounded-lg p-3">
+        <div class="text-xs text-indigo-200">Lift vs worst day</div>
+        <div class="text-xl font-semibold" id="stat-lift"></div>
+        <div class="text-xs text-indigo-200 mt-0.5" id="stat-lift-sub"></div>
+      </div>
+    </div>
+
+    <!-- Cadence recommendation -->
+    <div class="mt-4 pt-4 border-t border-white/20 text-xs text-indigo-100 space-y-1" id="cadence-block">
+      <div><span class="text-indigo-200 uppercase tracking-wider">Cadence guidance —</span>
+        <span id="cadence-3"></span>
+        <span class="text-indigo-300"> · </span>
+        <span id="cadence-5"></span>
+        <span class="text-indigo-300"> · </span>
+        <span id="cadence-avoid"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Story: two charts side by side -->
+  <section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div class="bg-white rounded-xl border border-gray-200 p-5">
+      <div class="text-xs uppercase tracking-wider text-gray-500 mb-1">1. When the audience watches</div>
+      <h3 class="font-medium mb-3" id="viewing-caption">Loading…</h3>
+      <div class="chart-wrap"><canvas id="chart-viewing"></canvas></div>
+      <p class="text-xs text-gray-500 mt-2" id="viewing-note"></p>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-200 p-5">
+      <div class="flex items-center justify-between gap-2 mb-1">
+        <div class="text-xs uppercase tracking-wider text-gray-500">2. How videos perform by publish day</div>
+        <div class="flex gap-1" id="filter-group">
+          <button data-filter="all"    class="filter-btn text-xs px-2 py-0.5 rounded bg-gray-900 text-white">All</button>
+          <button data-filter="long"   class="filter-btn text-xs px-2 py-0.5 rounded bg-white border border-gray-300 text-gray-600">Long</button>
+          <button data-filter="shorts" class="filter-btn text-xs px-2 py-0.5 rounded bg-white border border-gray-300 text-gray-600">Shorts</button>
+        </div>
+      </div>
+      <h3 class="font-medium mb-3" id="publish-caption">Loading…</h3>
+      <div class="chart-wrap"><canvas id="chart-publish"></canvas></div>
+      <p class="text-xs text-gray-500 mt-2">Avg lifetime views per video, grouped by publish day. Days with &lt;3 videos are faded.</p>
+    </div>
+  </section>
+
+  <!-- Story: launch curve -->
+  <section class="bg-white rounded-xl border border-gray-200 p-5" id="launch-wrap">
+    <div class="text-xs uppercase tracking-wider text-gray-500 mb-1">3. Why the best day works</div>
+    <h3 class="font-medium mb-3" id="launch-caption">Loading…</h3>
+    <div class="chart-wrap" style="height: 280px"><canvas id="chart-launch"></canvas></div>
+    <p class="text-xs text-gray-500 mt-2">
+      Channel-wide views in the 8 days starting the day each video was published.
+      Best publish day highlighted; other days shown for context.
+      <span class="italic">Not per-video views — see caveats below.</span>
+    </p>
+  </section>
+
+  <!-- Caveats & details -->
+  <section class="space-y-3">
+    <details class="bg-white rounded-xl border border-gray-200 p-4">
+      <summary class="text-sm font-medium text-gray-700"> Caveats &amp; methodology</summary>
+      <ul class="mt-3 text-xs text-gray-600 space-y-1.5 list-disc pl-5">
+        <li><strong>Selection effect:</strong> if the team reserves stronger content for certain days, the day's average reflects content quality, not day-of-week.</li>
+        <li><strong>Small samples:</strong> days with &lt;3 videos are faded and should be treated as directional only.</li>
+        <li><strong>Channel growth:</strong> daily views have grown substantially over the export window, so "8-day post-publish" totals skew toward recent publishes. Without a pre-publish baseline this measures correlation, not causation.</li>
+        <li><strong>Channel-wide, not per-video:</strong> the launch curve uses total channel views, because per-video daily views aren't available from the API. Catalog views dominate the 8-day totals.</li>
+        <li><strong>Lifetime views confound age:</strong> older videos have had more time to accumulate views. Day-of-week rankings don't adjust for video age.</li>
+      </ul>
+    </details>
+
+    <details class="bg-white rounded-xl border border-gray-200 p-4">
+      <summary class="text-sm font-medium text-gray-700"> All 90 videos (sortable)</summary>
+      <div class="mt-3 overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-600">
+            <tr>
+              <th class="px-3 py-2">Video</th>
+              <th class="px-3 py-2 sortable" data-key="publish_date">Published <span class="arrow">▾</span></th>
+              <th class="px-3 py-2 sortable" data-key="dow_name">Day <span class="arrow">▾</span></th>
+              <th class="px-3 py-2 sortable" data-key="is_short">Type <span class="arrow">▾</span></th>
+              <th class="px-3 py-2 sortable text-right sorted" data-key="views" data-dir="desc">Views <span class="arrow">▾</span></th>
+              <th class="px-3 py-2 sortable text-right" data-key="likes">Likes <span class="arrow">▾</span></th>
+              <th class="px-3 py-2 sortable text-right" data-key="comments">Comments <span class="arrow">▾</span></th>
+            </tr>
+          </thead>
+          <tbody id="video-tbody"></tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+
+  <footer class="text-center text-xs text-gray-400 pt-2 pb-6">
+    Regenerate with <code class="px-1 py-0.5 bg-gray-100 rounded">python weekday-weekend/analyze.py</code>
+  </footer>
+</main>
+
+<script>
+const DATA = /*__DATA__*/{};
+const WEEK = DATA.weekday_names;
+const fmt = n => (n == null ? '—' : Number(n).toLocaleString());
+const DOW_COLOR = (i, faded = false) => faded
+  ? (i >= 5 ? '#fde68a' : '#bfdbfe')
+  : (i >= 5 ? '#f59e0b' : '#3b82f6');
+
+document.getElementById('source').textContent = 'Source: ' + DATA.source;
+document.getElementById('generated').textContent = 'Generated ' + DATA.generated_at;
+document.getElementById('subtitle').textContent =
+  DATA.publish.total_videos + ' videos analyzed';
+
+// ---- Recommendation hero ----
+const I = DATA.insights;
+if (I && I.recommendation) {
+  document.getElementById('rec-headline').textContent = I.recommendation.headline;
+  document.getElementById('rec-detail').textContent = I.recommendation.detail;
+  document.getElementById('stat-best').textContent = I.best.name;
+  document.getElementById('stat-best-sub').textContent =
+    `${fmt(I.best.avg)} avg views · n=${I.best.n}`;
+}
+if (I.view_ratio_wk_we != null) {
+  document.getElementById('stat-viewing').textContent =
+    I.viewing_winner === 'weekday' ? 'Mon–Fri' : 'Sat–Sun';
+  document.getElementById('stat-viewing-sub').textContent =
+    `${I.view_ratio_wk_we}× weekday / weekend daily views`;
+} else {
+  document.getElementById('stat-viewing').textContent = '—';
+  document.getElementById('stat-viewing-sub').textContent = 'Add DAILY_XLSX for viewing data';
+}
+if (I.best && I.worst) {
+  const lift = I.worst.avg ? (I.best.avg / I.worst.avg).toFixed(1) : '—';
+  document.getElementById('stat-lift').textContent = lift + '×';
+  document.getElementById('stat-lift-sub').textContent =
+    `${I.best.name} (${fmt(I.best.avg)}) vs ${I.worst.name} (${fmt(I.worst.avg)})`;
+}
+
+// ---- Cadence guidance ----
+if (I.cadence && I.cadence.top_3.length > 0) {
+  const joinDays = arr => arr.map(d => d.name).join(' · ');
+  const top3 = I.cadence.top_3;
+  const top5 = I.cadence.top_5;
+  const extra5 = top5.slice(top3.length);
+  const avoid = I.cadence.avoid;
+
+  document.getElementById('cadence-3').innerHTML =
+    `<span class="text-indigo-200">Post 3×/wk:</span> <strong>${joinDays(top3)}</strong>`;
+
+  if (extra5.length > 0) {
+    document.getElementById('cadence-5').innerHTML =
+      `<span class="text-indigo-200">Post 5×/wk:</span> add <strong>${joinDays(extra5)}</strong>`;
+  } else {
+    document.getElementById('cadence-5').style.display = 'none';
+  }
+
+  if (avoid.length > 0) {
+    const notes = avoid.map(d => d.small_sample ? `${d.name} (n=${d.n})` : d.name);
+    document.getElementById('cadence-avoid').innerHTML =
+      `<span class="text-indigo-200">Avoid:</span> <strong>${notes.join(' · ')}</strong>`;
+  } else {
+    document.getElementById('cadence-avoid').style.display = 'none';
+  }
+} else {
+  document.getElementById('cadence-block').style.display = 'none';
+}
+
+// ---- Chart 1: viewing by DoW ----
+if (DATA.viewing) {
+  const v = DATA.viewing;
+  const wkAvg = v.weekday.avg, weAvg = v.weekend.avg;
+  const winner = wkAvg > weAvg ? 'Mon–Fri' : 'Sat–Sun';
+  const ratio = weAvg ? (wkAvg / weAvg).toFixed(1) : '—';
+  document.getElementById('viewing-caption').textContent =
+    `${winner} averages ${fmt(Math.max(wkAvg, weAvg))} daily views — ${ratio}× ${winner === 'Mon–Fri' ? 'the weekend' : 'weekdays'}.`;
+  document.getElementById('viewing-note').textContent =
+    `Channel-wide daily views, ${v.total_days} days (${v.range_start} → ${v.range_end}).`;
+
+  new Chart(document.getElementById('chart-viewing'), {
+    type: 'bar',
+    data: {
+      labels: WEEK,
+      datasets: [{
+        data: v.by_dow.map(d => d.avg),
+        backgroundColor: WEEK.map((_, i) => DOW_COLOR(i)),
+      }],
+    },
+    options: {
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true, ticks: { callback: x => fmt(x) } } },
+    },
+  });
+} else {
+  document.getElementById('viewing-caption').textContent = 'No daily data loaded';
+  document.getElementById('viewing-note').innerHTML =
+    'Export daily views from YouTube Studio → Analytics → Advanced mode, then set <code>DAILY_XLSX</code> in .env.';
+}
+
+// ---- Chart 2: publish by DoW (with content filter) ----
+let currentFilter = 'all';
+let chartPublish;
+
+function publishStats(filter) {
+  const p = DATA.publish;
+  if (filter === 'shorts') return p.by_dow_shorts;
+  if (filter === 'long')   return p.by_dow_long;
+  return p.by_dow;
+}
+
+function renderPublish() {
+  const byDow = publishStats(currentFilter);
+  const bestIdx = byDow
+    .map((d, i) => [i, d])
+    .filter(([, d]) => d.count >= 3)
+    .sort((a, b) => b[1].avg_views - a[1].avg_views)[0]?.[0];
+
+  const colors = byDow.map((d, i) => {
+    const faded = d.count < 3;
+    if (i === bestIdx && !faded) return i >= 5 ? '#d97706' : '#1d4ed8';
+    return DOW_COLOR(i, faded);
+  });
+
+  // caption
+  if (bestIdx != null) {
+    const best = byDow[bestIdx];
+    document.getElementById('publish-caption').textContent =
+      `${WEEK[bestIdx]} videos average ${fmt(best.avg_views)} lifetime views (n=${best.count}).`;
+  } else {
+    document.getElementById('publish-caption').textContent = 'Not enough data in this subset.';
+  }
+
+  if (chartPublish) chartPublish.destroy();
+  chartPublish = new Chart(document.getElementById('chart-publish'), {
+    type: 'bar',
+    data: {
+      labels: WEEK,
+      datasets: [{
+        data: byDow.map(d => d.avg_views),
+        backgroundColor: colors,
+      }],
+    },
+    options: {
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const d = byDow[ctx.dataIndex];
+              return [
+                `Avg: ${fmt(d.avg_views)}`,
+                `Median: ${fmt(d.median_views)}`,
+                `Videos: ${d.count}`,
+              ];
+            },
+          },
+        },
+      },
+      scales: { y: { beginAtZero: true, ticks: { callback: v => fmt(v) } } },
+    },
+  });
+}
+
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    currentFilter = btn.dataset.filter;
+    document.querySelectorAll('.filter-btn').forEach(b => {
+      b.className = b === btn
+        ? 'filter-btn text-xs px-2 py-0.5 rounded bg-gray-900 text-white'
+        : 'filter-btn text-xs px-2 py-0.5 rounded bg-white border border-gray-300 text-gray-600';
+    });
+    renderPublish();
+  });
+});
+renderPublish();
+
+// ---- Chart 3: launch curve (best day highlighted) ----
+if (DATA.launch && I.best) {
+  const L = DATA.launch;
+  const bestName = I.best.name;
+  const bestDow = WEEK.indexOf(bestName);
+  const bestCurve = L.by_dow[bestDow];
+
+  const labels = ['Publish', '+1', '+2', '+3', '+4', '+5', '+6', '+7'];
+  const datasets = L.by_dow
+    .filter(d => d.sample > 0)
+    .map(d => {
+      const isBest = d.dow === bestDow;
+      const faint = d.sample < 3;
+      return {
+        label: `${d.dow_name} (n=${d.sample})`,
+        data: d.curve,
+        borderColor: isBest ? '#4f46e5' : (faint ? '#e5e7eb' : '#d1d5db'),
+        backgroundColor: isBest ? '#4f46e5' : '#d1d5db',
+        borderWidth: isBest ? 3 : 1,
+        borderDash: faint ? [3, 3] : [],
+        pointRadius: isBest ? 4 : 0,
+        order: isBest ? 0 : 1,
+        tension: 0.3,
+      };
+    });
+
+  // Caption: describe the best curve shape
+  const c = bestCurve.curve;
+  const peakIdx = c.indexOf(Math.max(...c));
+  const peakLabel = labels[peakIdx].toLowerCase();
+  document.getElementById('launch-caption').textContent =
+    `After a ${bestName} publish, channel views peak at day ${peakLabel.replace('+','')} ` +
+    `(${fmt(c[peakIdx])}) and average ${fmt(bestCurve.avg_8day_total)} over the 8-day window.`;
+
+  new Chart(document.getElementById('chart-launch'), {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } },
+        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt(ctx.parsed.y)}` } },
+      },
+      scales: { y: { beginAtZero: true, ticks: { callback: v => fmt(v) } } },
+    },
+  });
+} else {
+  document.getElementById('launch-wrap').style.display = 'none';
+}
+
+// ---- Video table ----
+const tbody = document.getElementById('video-tbody');
+let sortKey = 'views';
+let sortDir = 'desc';
+
+function renderTable() {
+  const videos = [...DATA.publish.videos].sort((a, b) => {
+    const va = a[sortKey], vb = b[sortKey];
+    if (typeof va === 'number' && typeof vb === 'number') {
+      return sortDir === 'desc' ? vb - va : va - vb;
+    }
+    const sa = String(va ?? ''), sb = String(vb ?? '');
+    return sortDir === 'desc' ? sb.localeCompare(sa) : sa.localeCompare(sb);
+  });
+
+  tbody.innerHTML = videos.map(v => `
+    <tr class="border-t border-gray-100 hover:bg-gray-50">
+      <td class="px-3 py-2">
+        <a href="${v.url}" target="_blank" rel="noopener" class="flex items-center gap-2 group">
+          <img src="${v.thumbnail}" alt="" class="w-16 h-9 object-cover rounded bg-gray-200" loading="lazy">
+          <span class="text-gray-900 group-hover:text-indigo-600 line-clamp-2">${escapeHtml(v.title)}</span>
+        </a>
+      </td>
+      <td class="px-3 py-2 text-gray-600 whitespace-nowrap">${v.publish_date}</td>
+      <td class="px-3 py-2">
+        <span class="inline-block px-1.5 py-0.5 rounded text-xs font-medium ${v.is_weekend ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}">${v.dow_name}</span>
+      </td>
+      <td class="px-3 py-2 text-gray-600 text-xs">${v.is_short ? 'Short' : 'Long'}</td>
+      <td class="px-3 py-2 text-right tabular-nums">${fmt(v.views)}</td>
+      <td class="px-3 py-2 text-right tabular-nums">${fmt(v.likes)}</td>
+      <td class="px-3 py-2 text-right tabular-nums">${fmt(v.comments)}</td>
+    </tr>
+  `).join('');
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
+document.querySelectorAll('th.sortable').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.key;
+    if (sortKey === key) {
+      sortDir = sortDir === 'desc' ? 'asc' : 'desc';
+    } else {
+      sortKey = key;
+      sortDir = 'desc';
+    }
+    document.querySelectorAll('th.sortable').forEach(t => t.classList.remove('sorted'));
+    th.classList.add('sorted');
+    renderTable();
+  });
+});
+
+renderTable();
+</script>
+</body>
+</html>
